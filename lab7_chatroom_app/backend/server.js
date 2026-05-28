@@ -16,7 +16,7 @@ app.use(cors({ // browsers block requests from different origins unless the serv
 app.use(express.json());
 
 app.use(session({
-    secret: 'chatroom-secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false
   })
