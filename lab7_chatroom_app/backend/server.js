@@ -92,15 +92,29 @@ app.post('/signup', async (req, res) => {
   res.json(user);
 });
 
-app.post(
-  '/login',
-  passport.authenticate('local'),
-  function(req, res) {
-    res.json({
-      success: true
+// Custom callback so failure always returns JSON instead of a 401 HTML response
+app.post('/login', (req, res, next) => {
+  passport.authenticate('local', (err, user) => {
+    if (err || !user) {
+      return res.json({ success: false });
+    }
+    req.logIn(user, (loginErr) => {
+      if (loginErr) return res.json({ success: false });
+      return res.json({ success: true });
     });
-  }
-);
+  })(req, res, next);
+});
+
+app.post('/logout', (req, res) => {
+  req.logout(() => {
+    res.json({ success: true });
+  });
+});
+
+/** Returns the currently logged-in user's username */
+app.get('/me', checkAuth, (req, res) => {
+  res.json({ username: req.user.username });
+});
 
 app.get('/rooms', checkAuth, async (req, res) => {
   const rooms = await Room.find();
@@ -129,6 +143,49 @@ app.post('/send-message', checkAuth, async (req, res) => {
     text: req.body.text,
     replies: []
   });
+  res.json(message);
+});
+
+/** Edit a message, only the original author may edit. */
+app.put('/message/:messageId', checkAuth, async (req, res) => {
+  const message = await Message.findById(req.params.messageId);
+  if (!message || message.username !== req.user.username) {
+    return res.status(403).json({ success: false });
+  }
+  message.text = req.body.text;
+  await message.save();
+  res.json(message);
+});
+
+/** Delete a message, only the original author may delete. */
+app.delete('/message/:messageId', checkAuth, async (req, res) => {
+  const message = await Message.findById(req.params.messageId);
+  if (!message || message.username !== req.user.username) {
+    return res.status(403).json({ success: false });
+  }
+  await Message.findByIdAndDelete(req.params.messageId);
+  res.json({ success: true });
+});
+
+/** Thumb up or down a top-level message. Body: { vote: 'up' | 'down' } */
+app.post('/message/:messageId/vote', checkAuth, async (req, res) => {
+  const message = await Message.findById(req.params.messageId);
+  if (!message) return res.status(404).json({ success: false });
+  if (req.body.vote === 'up') message.thumbsUp += 1;
+  else message.thumbsDown += 1;
+  await message.save();
+  res.json(message);
+});
+
+/** Thumb up or down a reply. Body: { vote: 'up' | 'down' } */
+app.post('/message/:messageId/reply/:replyIndex/vote', checkAuth, async (req, res) => {
+  const message = await Message.findById(req.params.messageId);
+  if (!message) return res.status(404).json({ success: false });
+  const reply = message.replies[req.params.replyIndex];
+  if (!reply) return res.status(404).json({ success: false });
+  if (req.body.vote === 'up') reply.thumbsUp += 1;
+  else reply.thumbsDown += 1;
+  await message.save();
   res.json(message);
 });
 
